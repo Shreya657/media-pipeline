@@ -1,0 +1,11 @@
+{
+  "name": "media-processor-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

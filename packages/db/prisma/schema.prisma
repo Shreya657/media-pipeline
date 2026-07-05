@@ -1,0 +1,75 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+model User {
+  id            String         @id // Matches Clerk's unique user ID (user_...)
+  email         String         @unique
+  username      String?        @unique // Nullable because some users might only have emails, but unique for queries
+  imageUrl      String?        // Great for storing their Google/GitHub avatar from Clerk
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  
+  uploads       Upload[]
+  notifications Notification[] // Groundwork for the notification bell system
+}
+
+enum UploadStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+model Upload {
+  id             String       @id @default(uuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // File Tracking
+  originalName   String       // e.g., "vlog_raw.mp4"
+  originalUrl    String       // Cloudinary / S3 source link
+  mediaType      MediaType
+  status         UploadStatus @default(PENDING)
+  progress       Int          @default(0)    // 0 to 100 for Socket.io tracking
+  failReason     String?      // Stores ffmpeg/sharp errors if a job breaks
+  
+  // Metaprogramming options (stored as flexible JSON)
+  // e.g., { format: "webp", width: 800 } or { target: "1080p", trim: "0-10" }
+  processingOpts Json
+  
+  // Output variants array (stored as JSON after worker completes)
+  // e.g., [{ resolution: "1080p", url: "..." }, { resolution: "720p", url: "..." }]
+  outputUrls     Json?
+  
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  
+  notifications  Notification[]
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  uploadId  String
+  upload    Upload   @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  
+  message   String   // e.g., "Your video 'intro.mp4' has finished processing!"
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
