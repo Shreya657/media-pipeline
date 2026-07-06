@@ -8,11 +8,12 @@ import Redis from 'ioredis';
 import axios from 'axios';
 import { executeImagePipeline } from './utils/img-processor.js';
 import { prisma } from '@project/db';
+import { executeVideoPipeline } from './utils/video-processor.js';
 
 
 // dotenv.config();
 
-console.log('👷 High-Performance Background Worker booting up...');
+console.log('High-Performance Background Worker booting up...');
 
 //connection to local docker redis instance
 const redisConnection = new Redis.default({
@@ -69,15 +70,35 @@ const mediaWorker = new Worker(
         console.log(`✅ [JOB COMPLETED] Asset successfully transformed:`, processedOutputs);
         return { success: true, outputs: processedOutputs };
       } else if (mediaType === 'VIDEO') {
-        // Placeholder loop catch for tomorrow's FFmpeg engine deployment
-        console.log('🎥 Video detected. Skipping compute until Phase 3 FFmpeg hooks go live.');
-        await prisma.upload.update({
-          where: { id: uploadId },
-          data: { status: 'COMPLETED', progress: 100 }
-        });
-        return { success: true };
+      console.log(`Video optimization job detected. Spinning up FFmpeg processing engine...`);
+  
+  //  Fire the streaming loop and feed back live db updates dynamically
+  const processedOutputs = await executeVideoPipeline(
+    originalUrl, 
+    uploadId, 
+    options,
+    async (progressPercentage: number) => {
+      // Stream incremental progress up to the db in real-time
+      await job.updateProgress(progressPercentage);
+      await prisma.upload.update({
+        where: { id: uploadId },
+        data: { progress: progressPercentage }
+      });
+      console.log(` Video ${uploadId} compilation progress: ${progressPercentage}%`);
       }
-    } catch (error: any) {
+    );
+    await prisma.upload.update({
+    where: { id: uploadId },
+    data: {
+      status: 'COMPLETED',
+      progress: 100,
+      processingOpts: processedOutputs // Saves keys: res_720p, res_480p, thumbnail
+    }
+  });
+
+  console.log(`✅ [JOB COMPLETED] Video successfully transcoded:`, processedOutputs);
+  return { success: true, outputs: processedOutputs };
+    }} catch (error: any) {
       console.error(` Processing execution failure inside worker loop:`, error.message);
       throw error; 
     }
