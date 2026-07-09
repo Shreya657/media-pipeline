@@ -11,11 +11,11 @@ cloudinary.config({
     api_secret: process.env.CLOUDINARY_API_SECRET!,
 })
 
-console.log('🔍 Cloudinary config check:', {
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  has_secret: !!process.env.CLOUDINARY_API_SECRET
-})
+// console.log('Cloudinary config check:', {
+//   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+//   api_key: process.env.CLOUDINARY_API_KEY,
+//   has_secret: !!process.env.CLOUDINARY_API_SECRET
+// })
 
 interface CloudinaryUploadResult {
     secure_url:string;
@@ -35,7 +35,7 @@ export const streamUploadToCloudinary=(fileBuffer:Buffer,fileName:string):Promis
         },
         (error,result)=>{
         if(error){
-             console.log('❌ Full Cloudinary error:', JSON.stringify(error, null, 2))
+        console.log('Full Cloudinary error:', JSON.stringify(error, null, 2))
         return reject(error);
         }
         if(!result){

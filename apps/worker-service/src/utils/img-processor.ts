@@ -1,6 +1,7 @@
 import sharp from 'sharp';
 import { v2 as cloudinary } from 'cloudinary';
 import { Readable } from 'stream';
+import type { JobCancellationTracker } from './video-processor.js';
 
 // Configure Cloudinary 
 cloudinary.config({
@@ -34,7 +35,7 @@ const uploadBufferToCloudinary = (buffer: Buffer, publicId: string): Promise<str
   });
 };
 
-export const executeImagePipeline = async (inputBuffer: Buffer, uploadId: string, options: ProcessOptions) => {
+export const executeImagePipeline = async (inputBuffer: Buffer, uploadId: string, options: ProcessOptions, cancelTracker?: JobCancellationTracker) => {
   const outputs: Record<string, string> = {};
 
   let pipeline = sharp(inputBuffer).rotate(); // auto-rotates phone images based on EXIF orientation
@@ -61,8 +62,14 @@ export const executeImagePipeline = async (inputBuffer: Buffer, uploadId: string
   const mainProcessedBuffer = await pipeline.toBuffer();
   const targetExt = options.format || 'webp';
   
+  if (cancelTracker?.cancelled) {
+    throw new Error("JOB_CANCELLED");
+}
   // Stream main output back to cloudinary
   const mainUrl = await uploadBufferToCloudinary(mainProcessedBuffer, `processed-${uploadId}-${Date.now()}`);
+  if (cancelTracker?.cancelled) {
+    throw new Error("JOB_CANCELLED");
+}
   outputs['main'] = mainUrl;
 
   //thumbnail generation
@@ -74,6 +81,10 @@ export const executeImagePipeline = async (inputBuffer: Buffer, uploadId: string
        }) // force exact square crop for user profile grids/dashboards
       .toFormat(targetExt, { quality: 85 })
       .toBuffer();
+
+      if (cancelTracker?.cancelled) {
+    throw new Error("JOB_CANCELLED");
+}
 
     const thumbUrl = await uploadBufferToCloudinary(thumbnailBuffer, `thumb-${uploadId}-${Date.now()}`);
     outputs['thumbnail'] = thumbUrl;

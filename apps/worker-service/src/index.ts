@@ -8,12 +8,18 @@ import Redis from 'ioredis';
 import axios from 'axios';
 import { executeImagePipeline } from './utils/img-processor.js';
 import { prisma } from '@project/db';
-import { executeVideoPipeline } from './utils/video-processor.js';
+import { executeVideoPipeline, type JobCancellationTracker } from './utils/video-processor.js';
 
 
 // dotenv.config();
 
 console.log('High-Performance Background Worker booting up...');
+
+const redisOptions = {
+  host: 'localhost',
+  port: 6379,
+  maxRetriesPerRequest: null
+};
 
 //connection to local docker redis instance
 const redisConnection = new Redis.default({
@@ -22,12 +28,82 @@ const redisConnection = new Redis.default({
    maxRetriesPerRequest: null 
   });
 
+  // EXTRA NETWORK HOOK:an isolated redis connection for the Pub/Sub listener
+const redisSubscriber = new Redis.default(redisOptions);
+
+//memory mapping to monitor uploadId
+const activeJobsMemoryStore = new Map<string, { cancelTracker: JobCancellationTracker; jobInstance: Job }>();
+
+// connect to the messaging channel immediately on boot
+redisSubscriber.subscribe('media-pipeline-cancellation', (err) => {
+  if (err) {
+    console.error('🥀Failed to bind cancellation subscription stream channel:', err);
+  } else {
+    console.log('Worker Network safely listening to [media-pipeline-cancellation] broadcast frequencies...');
+  }
+});
+
+// Intercept messages passing across the cluster channel in real-time
+redisSubscriber.on('message', async (channel, message) => {
+  if (channel === 'media-pipeline-cancellation') {
+    const { uploadId } = JSON.parse(message);
+    
+    // Check if this specific worker thread is the one processing the targeted asset
+    if (activeJobsMemoryStore.has(uploadId)) {
+      console.log(` CRITICAL KILL SIGNAL RECIEVED FOR ASSET: ${uploadId}!!`);
+      const record = activeJobsMemoryStore.get(uploadId);
+
+    if(!record){
+      return;
+    }
+      
+      if (record) {
+        const { cancelTracker, jobInstance } = record;
+
+        cancelTracker.cancelled = true;
+        
+        // If an FFmpeg transcode subprocess is currently ticking, execute a hard OS level abort kill
+        if (cancelTracker.activeCommand && typeof cancelTracker.activeCommand.kill === 'function') {
+          console.log('Killing active background FFmpeg OS subprocess execution link...');
+          // cancelTracker.activeCommand.kill('SIGKILL'); // Kills the process instantly
+          cancelTracker.activeCommand.kill('SIGTERM'); // Graceful termination signal
+        }
+        
+        // Forcibly discard/fail the parent BullMQ job container from the queue stack cleanly
+        try {
+      await prisma.upload.update({
+    where:{id:uploadId},
+    data:{
+    status:"CANCELLED"
+    }
+})
+          await jobInstance.discard();
+          await jobInstance.moveToFailed(new Error('Job terminated by explicit user cancellation command.'), 'CANCELED_BY_USER');
+    
+        } catch (queueErr) {
+          console.warn(' Queue job step displacement caught during abort cycle:', queueErr);
+        }
+        
+        // Wipe our tracking memory matrix record
+        activeJobsMemoryStore.delete(uploadId);
+      }
+    }
+  }
+});
+
 const mediaWorker = new Worker(
   'media-processing',
   async (job: Job) => {
     const { uploadId, originalUrl, mediaType, options } = job.data;
     console.log(`\n [JOB STARTED] Processing Asset ID: ${uploadId} (Type: ${mediaType})`);
 
+    // Initialize an isolated, trackable cancel reference container for this unique loop iteration
+    const cancelTracker: JobCancellationTracker = { activeCommand: undefined,cancelled: false };
+    
+    // Register this live job into memory right before compute cycles commence
+    activeJobsMemoryStore.set(uploadId, { cancelTracker, jobInstance: job });
+    
+    console.log(`\n[JOB CAPTURED] Transcoding Asset ID: ${uploadId} (Type: ${mediaType})`);
     // 1. mark state as PROCESSING and set progress tracker to 10%
     await prisma.upload.update({
       where: { id: uploadId },
@@ -49,7 +125,7 @@ const mediaWorker = new Worker(
 
         // 3. execute the chainable Sharp transformation engine
         console.log(` Core compute engine running...`);
-        const processedOutputs = await executeImagePipeline(rawBuffer, uploadId, options);
+        const processedOutputs = await executeImagePipeline(rawBuffer, uploadId, options,cancelTracker);
         
         await job.updateProgress(80);
         await prisma.upload.update({
@@ -85,7 +161,8 @@ const mediaWorker = new Worker(
         data: { progress: progressPercentage }
       });
       console.log(` Video ${uploadId} compilation progress: ${progressPercentage}%`);
-      }
+      },
+      cancelTracker
     );
     await prisma.upload.update({
     where: { id: uploadId },
@@ -99,8 +176,22 @@ const mediaWorker = new Worker(
   console.log(`✅ [JOB COMPLETED] Video successfully transcoded:`, processedOutputs);
   return { success: true, outputs: processedOutputs };
     }} catch (error: any) {
-      console.error(` Processing execution failure inside worker loop:`, error.message);
-      throw error; 
+      // Check if this error was thrown because we deliberately triggered an OS process kill
+      const currentStatus = await prisma.upload.findUnique({ where: { id: uploadId } });
+      
+      if (currentStatus?.status === 'CANCELLED' && cancelTracker.cancelled) {
+        console.log(` Execution cleanup concluded for aborted asset: ${uploadId}`);
+      } else {
+        console.error(`🥀Pipeline crash caught during lifecycle run for ID: ${uploadId}:`, error);
+        await prisma.upload.update({
+          where: { id: uploadId },
+          data: { status: 'FAILED' }
+        });
+      }
+      throw error;
+    }finally{
+      // Always remove the reference from memory once the task is out of the pipeline completely
+      activeJobsMemoryStore.delete(uploadId);
     }
   },
   { 
@@ -122,7 +213,13 @@ mediaWorker.on('failed', async (job, err) => {
   // check if the job has burned through all its retry attempts
   if (job.attemptsMade >= (job.opts.attempts || 3)) {
     console.error(`[CRITICAL FAULT] Job ${job.id} failed permanently after maximum retries. Logging trace.`);
-    
+    const upload = await prisma.upload.findUnique({
+  where: { id: uploadId }
+});
+
+if (upload?.status === "CANCELLED") {
+  return;
+}
     // update DB status to FAILED 
     await prisma.upload.update({
       where: { id: uploadId },

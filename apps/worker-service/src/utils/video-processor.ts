@@ -14,11 +14,17 @@ interface VideoProgressData {
   percent?: number;
 }
 
+export interface JobCancellationTracker {
+  activeCommand?: any; // Holds the active fluent-ffmpeg command handle instance
+  cancelled?: boolean;
+}
+
 // to probe video metadata
 const getVideoDimensions = (filePath: string): Promise<{ width: number; height: number }> => {
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(filePath, (err, metadata) => { //ffprove- Only reads information.,ffmpeg:do actual edits
-      if (err) return reject(err);
+      if (err)
+       return reject(err);
       const stream = metadata.streams.find((s) => s.codec_type === 'video');
       resolve({
         width: stream?.width || 0,
@@ -47,7 +53,8 @@ export const executeVideoPipeline = async (
   videoUrl: string, 
   uploadId: string, 
   options: { targetResolutions?: string[]; extractThumbnail?: boolean }, 
-  onProgress: (progress: number) => Promise<void>
+  onProgress: (progress: number) => Promise<void>,
+  cancelTracker: JobCancellationTracker
 ) => {
   const inputPath = path.join(tempDir, `input-${uploadId}.mp4`);
   const out720pPath = path.join(tempDir, `out-720p-${uploadId}.mp4`);
@@ -62,6 +69,9 @@ export const executeVideoPipeline = async (
     // Download raw file
     console.log(`Downloading raw video to local cache disk...`);
     const writer = fs.createWriteStream(inputPath);
+    if (cancelTracker.cancelled) {
+      throw new Error('Job cancelled before download could start.');
+    }
     const response = await axios({ url: videoUrl, method: 'GET', responseType: 'stream' });
     response.data.pipe(writer);
     
@@ -76,8 +86,11 @@ export const executeVideoPipeline = async (
 
     const transcodeResolution = (outputPath: string, width: number, progressOffset: number): Promise<void> => {
       return new Promise((resolve, reject) => {
-        (ffmpeg(inputPath) as any)
-          .outputOptions([
+        //store the command instance
+        const cmd = ffmpeg(inputPath) as any;
+        cancelTracker.activeCommand = cmd; // attach it to tracking handle object
+        
+          cmd.outputOptions([
             `-vf scale=w=${width}:h=-2`, 
             '-c:v libx264',               
             '-crf 23',                    
@@ -92,8 +105,14 @@ export const executeVideoPipeline = async (
               onProgress(Math.min(dynamicScale, 90));
             }
           })
-          .on('end', () => resolve())
-          .on('error', (err: any) => reject(err))
+          .on('end', () => {
+            cancelTracker.activeCommand = undefined; // Clear tracking on clean end
+            resolve();
+          })
+          .on('error',(err: any) => {
+            cancelTracker.activeCommand = undefined;
+            reject(err);
+          })
           .run();
       });
     };
@@ -104,6 +123,9 @@ export const executeVideoPipeline = async (
     if (targets.includes('720p') && dimensions.width >= 1280) {
       console.log('Commencing 720p HD downscaling...');
       await transcodeResolution(out720pPath, 1280, 20);
+      if(cancelTracker.cancelled) {
+        throw new Error('Job cancelled during 720p transcode.');
+      }
       outputs['res_720p'] = await uploadVideoToCloudinary(out720pPath, `video-720p-${uploadId}`);
     } else {
       console.log('Skipping 720p transcode (Not requested or video is too small).');
@@ -112,6 +134,9 @@ export const executeVideoPipeline = async (
     if (targets.includes('480p') && dimensions.width >= 854) {
       console.log('Commencing 480p SD optimization...');
       await transcodeResolution(out480pPath, 854, 55);
+      if(cancelTracker.cancelled) {
+        throw new Error('Job cancelled during 480p transcode.');
+      }
       outputs['res_480p'] = await uploadVideoToCloudinary(out480pPath, `video-480p-${uploadId}`);
     } else {
       console.log('Skipping 480p transcode.');
@@ -121,16 +146,28 @@ export const executeVideoPipeline = async (
     if (options.extractThumbnail !== false) {
       console.log('Extracting video thumbnail...');
       await new Promise<void>((resolve, reject) => {
-        (ffmpeg(inputPath) as any)
-          .screenshots({
-            timestamps: ['00:00:01.000'],
-            filename: thumbName,
-            folder: thumbDir,
-            size: '640x360'
-          })
-          .on('end', () => resolve())
-          .on('error', (err: any) => reject(err));
+        const cmd = ffmpeg(inputPath) as any;
+        cancelTracker.activeCommand = cmd;
+
+        cmd.screenshots({
+          timestamps: ['00:00:01.000'],
+          filename: thumbName,
+          folder: thumbDir,
+          size: '640x360'
+        })
+          .on('end', () => {
+            cancelTracker.activeCommand = undefined;
+            resolve();
+      })
+          .on('error', (err: any) => {
+            cancelTracker.activeCommand = undefined;
+            reject(err);
+          });
       });
+      
+      if(cancelTracker.cancelled) {
+        throw new Error('Job cancelled during thumbnail extraction.');
+      }
 
       if (fs.existsSync(thumbPath)) {
         outputs['thumbnail'] = await uploadVideoToCloudinary(thumbPath, `video-thumb-${uploadId}`, true);

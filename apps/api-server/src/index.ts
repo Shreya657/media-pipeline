@@ -8,6 +8,7 @@ import {  validateMediaUpload } from './middleware/upload.js';
 import { streamUploadToCloudinary } from './utils/cloudinary.js';
 import { prisma } from '@project/db'
 
+
 dotenv.config();
 
 const app=express()
@@ -80,6 +81,7 @@ app.post('/api/media/upload', validateMediaUpload, async (req, res) => {
           userId: userId,
           originalUrl: cloudStorage.secure_url,
           mediaType: mediaType,
+
           options: dbUploadRecord.processingOpts 
         }, {
           attempts: 3,
@@ -105,6 +107,106 @@ app.post('/api/media/upload', validateMediaUpload, async (req, res) => {
   }
 });
 
+
+// Initializing a dedicated publisher
+const redisPublisher = new Redis.default({
+   host: 'localhost',
+   port: 6379,
+   maxRetriesPerRequest: null 
+});
+
+
+ //Polling Status Engine
+app.get('/api/media/status/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const uploadRecord = await prisma.upload.findUnique({
+      where: { id }
+    });
+
+    if (!uploadRecord) {
+      return res.status(404).json({ 
+        error: 'Target media asset record not found.' 
+      });
+    }
+
+     await prisma.upload.update({
+      where: { id },
+      data: { 
+        status: 'CANCELLED',
+        // progress: 0
+      }
+    });
+ // ⚡ BYPASS: Execute a raw native query to update the enum directly in Postgres
+// await prisma.$executeRawUnsafe(
+//   `UPDATE "Upload" SET status = 'CANCELLED'::"UploadStatus", progress = 0 WHERE id = $1`,
+//   id
+// );
+ 
+
+    return res.status(200).json({
+      success: true,
+      status: uploadRecord.status,
+      progress: uploadRecord.progress,
+      processedOutputs: uploadRecord.processedOutputs || null,
+      error: uploadRecord.uploadStatus === 'FAILED' ? 'Processing pipeline anomaly encountered.' : undefined
+    });
+  } catch (error: any) {
+    console.error('Status polling resolution mismatch:', error);
+    return res.status(500).json({ error: error.message || 'Internal registry error.' });
+  }
+});
+
+
+ // distributed job cancellation
+app.post('/api/media/jobs/:id/cancel', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // instantly assert the db record state to prevent redundant operations
+    const record = await prisma.upload.findUnique({ where: { id } });
+
+    if (!record) {
+      return res.status(404).json({ 
+        error: 'Target asset record could not be found.' 
+      });
+    }
+
+    if (record.status === 'COMPLETED' || record.status === 'FAILED' || record.status === 'CANCELLED') {
+      return res.status(400).json({ 
+        error: `Cannot cancel a job that has already completed with status: ${record.status}` 
+      });
+    }
+
+    // update state to CANCELLED to isolate workflows
+    await prisma.upload.update({
+      where: { id },
+      data: { 
+        status: 'CANCELLED',
+        // progress: 0
+      }
+    });
+
+    // THE KILL SIGNAL: Broadcast the uploadId over the Redis matrix channel instantly
+    console.log(`Publishing distributed kill signal across cluster channel for asset: ${id}`);
+    await redisPublisher.publish('media-pipeline-cancellation', JSON.stringify({ uploadId: id }));
+
+    return res.status(200).json({
+      success: true,
+      message: 'Distributed cancellation sequence initialized. Subprocesses terminated.'
+    });
+  } catch (error: any) {
+    console.error('Critical failure processing worker abort hook:', error);
+    return res.status(500).json({
+       error: error.message || 'Internal orchestration error.' 
+      });
+  }
+});
+
+
+
+
 // app.post('/api/media/upload',validateMediaUpload,async(req,res)=>{
 //   try{
 //     const files=req.files as Express.Multer.File[];
@@ -120,7 +222,7 @@ app.post('/api/media/upload', validateMediaUpload, async (req, res) => {
 
 //     // process all the files in loop
 //     for(const file of files){
-//   //      console.log('📁 File info:', {
+//   //      console.log(' File info:', {
 //   //   name: file.originalname,
 //   //   mimetype: file.mimetype,
 //   //   size: file.size,
@@ -170,7 +272,7 @@ app.post('/api/media/upload', validateMediaUpload, async (req, res) => {
 //       dispatchedAssets: dispatchSummary
 //     });
 //   }catch (error: any) {
-//     console.error('💥 Critical Pipeline Mismatch:', error);
+//     console.error('Critical Pipeline Mismatch:', error);
 //     return res.status(500).json({ error: error.message || 'Internal processing error.' });
 //   }
 // })
