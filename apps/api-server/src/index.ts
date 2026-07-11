@@ -4,14 +4,25 @@ import Redis from 'ioredis'
 import cors from 'cors'
 import dotenv from "dotenv";
 import {  validateMediaUpload } from './middleware/upload.js';
-// import { prisma } from "../../../../../packages/db/prisma";
 import { streamUploadToCloudinary } from './utils/cloudinary.js';
 import { prisma } from '@project/db'
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 
 
 dotenv.config();
 
 const app=express()
+//  wrap the express app with an HTTP server to support webSockets cleanly
+const httpServer = createServer(app);
+
+// initialize Socket.IO with explicit CORS configurations matching your Next.js frontend app URL
+const io = new Server(httpServer, {
+  cors: {
+    origin: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+    methods: ["GET", "POST"]
+  }
+});
 app.use(cors());
 app.use(express.json());
 
@@ -131,30 +142,46 @@ app.get('/api/media/status/:id', async (req, res) => {
       });
     }
 
-     await prisma.upload.update({
-      where: { id },
-      data: { 
-        status: 'CANCELLED',
-        // progress: 0
-      }
-    });
- // ⚡ BYPASS: Execute a raw native query to update the enum directly in Postgres
-// await prisma.$executeRawUnsafe(
-//   `UPDATE "Upload" SET status = 'CANCELLED'::"UploadStatus", progress = 0 WHERE id = $1`,
-//   id
-// );
- 
-
     return res.status(200).json({
       success: true,
       status: uploadRecord.status,
       progress: uploadRecord.progress,
-      processedOutputs: uploadRecord.processedOutputs || null,
+      processedOutputs: uploadRecord.processingOpts || null,
       error: uploadRecord.uploadStatus === 'FAILED' ? 'Processing pipeline anomaly encountered.' : undefined
     });
   } catch (error: any) {
     console.error('Status polling resolution mismatch:', error);
     return res.status(500).json({ error: error.message || 'Internal registry error.' });
+  }
+});
+
+//get history of gallary
+app.get('/api/media/user/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const historicalRecords = await prisma.upload.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' } 
+    });
+
+    const normalizedData = historicalRecords.map((record:any)=> ({
+      id: record.id,
+      fileName: record.originalName,
+      mediaType: record.mediaType,
+      status: record.status,
+      progress: record.progress,
+      // ⚡ FIX: Pull from processedOutputs to match your DB layout engine
+      outputs: record.processedOutputs || null 
+    }));
+
+    return res.status(200).json({
+      success: true,
+      assets: normalizedData
+    });
+  } catch (error: any) {
+    console.error('💥 Historical fetch anomaly:', error);
+    return res.status(500).json({ error: error.message || 'Failed to retrieve media library.' });
   }
 });
 
@@ -203,6 +230,73 @@ app.post('/api/media/jobs/:id/cancel', async (req, res) => {
       });
   }
 });
+
+
+
+
+
+
+// Subscriber instances lock down the network connection exclusively for receiving messages
+const redisSubscriber = new Redis.default({
+  host: 'localhost',
+  port: 6379,
+  maxRetriesPerRequest: null
+});
+
+// Connection Routing
+io.on('connection', (socket) => {
+  const userId = socket.handshake.query.userId as string;
+  
+  if (!userId) {
+    console.log('anonymous socket connection attempt rejected.');
+    socket.disconnect();
+    return;
+  }
+
+  const roomName = `room:${userId}`;
+  socket.join(roomName);
+  console.log(`user joined authenticated tracking channel: ${roomName} (Socket ID: ${socket.id})`);
+
+  socket.on('disconnect', () => {
+    console.log(`user disconnected from channel: ${roomName}`);
+  });
+});
+
+// connect the redis cluster to WebSockets
+// listening for incoming published signals broadcasted from the background worker service
+redisSubscriber.subscribe('media-pipeline-notifications', (err) => {
+  if (err) {
+    console.error('failed to subscribe to Redis notifications channel:', err);
+  } else {
+    console.log('API Server successfully listening to "media-pipeline-notifications" Redis matrix.');
+  }
+});
+
+redisSubscriber.on('message', (channel, message) => {
+  if (channel === 'media-pipeline-notifications') {
+    try {
+      const payload = JSON.parse(message);
+      const { userId, type, fileName, status, dbRecordId } = payload;
+
+      if (!userId) return;
+
+      // broadcast the event EXCLUSIVELY to that users private room
+      const targetRoom = `room:${userId}`;
+      io.to(targetRoom).emit('pipeline-event', {
+        type,         // e.g., 'PROCESSING_COMPLETE', 'PROCESSING_FAILED'
+        fileName,     // e.g., 'tot.mp4'
+        status,       // e.g., 'COMPLETED', 'FAILED'
+        dbRecordId,   // The database primary key to flash lookups
+        timestamp: new Date().toISOString()
+      });
+
+      console.log(`broadcasted pipeline notification down channel [${targetRoom}] for asset: ${fileName}`);
+    } catch (parseError) {
+      console.error('🚨 Error parsing Redis pipeline payload:', parseError);
+    }
+  }
+});
+
 
 
 

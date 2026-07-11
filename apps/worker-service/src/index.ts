@@ -28,6 +28,14 @@ const redisConnection = new Redis.default({
    maxRetriesPerRequest: null 
   });
 
+
+  //initializing for notification
+  const redisPublisher = new Redis.default({
+  host: 'localhost',
+  port: 6379,
+  maxRetriesPerRequest: null
+});
+
   // EXTRA NETWORK HOOK:an isolated redis connection for the Pub/Sub listener
 const redisSubscriber = new Redis.default(redisOptions);
 
@@ -94,7 +102,7 @@ redisSubscriber.on('message', async (channel, message) => {
 const mediaWorker = new Worker(
   'media-processing',
   async (job: Job) => {
-    const { uploadId, originalUrl, mediaType, options } = job.data;
+    const { uploadId, originalUrl, mediaType, options,userId } = job.data;
     console.log(`\n [JOB STARTED] Processing Asset ID: ${uploadId} (Type: ${mediaType})`);
 
     // Initialize an isolated, trackable cancel reference container for this unique loop iteration
@@ -143,7 +151,30 @@ const mediaWorker = new Worker(
           }
         });
 
+        
+
+        //notification
+        const notificationText = `Image variation optimization processing complete for ${job.data.fileName || 'your image asset'}.`;
+        await prisma.notification.create({
+          data: {
+            userId: userId || 'user_3FmKTy98aHZT2lTto3jAMux43uB', // Fallback safety seed
+            uploadId: uploadId,
+            message: notificationText,
+            isRead: false,
+            number: 1 // If required by schema constraints
+          }
+        });
+        //publisher
+        await redisPublisher.publish('media-pipeline-notifications', JSON.stringify({
+          userId,
+          dbRecordId: uploadId,
+          fileName: job.data.fileName || 'Image Asset',
+          status: 'COMPLETED',
+          type: 'PROCESSING_COMPLETE'
+        }));
+
         console.log(`✅ [JOB COMPLETED] Asset successfully transformed:`, processedOutputs);
+
         return { success: true, outputs: processedOutputs };
       } else if (mediaType === 'VIDEO') {
       console.log(`Video optimization job detected. Spinning up FFmpeg processing engine...`);
@@ -173,6 +204,26 @@ const mediaWorker = new Worker(
     }
   });
 
+//notification
+const notificationText = `Video multi-bitrate transcoding complete for ${job.data.fileName || 'your video asset'}.`;
+        await prisma.notification.create({
+          data: {
+            userId: userId || 'user_3FmKTy98aHZT2lTto3jAMux43uB',
+            uploadId: uploadId,
+            message: notificationText,
+            isRead: false,
+            number: 1
+          }
+        });
+//notification publisher
+        await redisPublisher.publish('media-pipeline-notifications', JSON.stringify({
+          userId,
+          dbRecordId: uploadId,
+          fileName: job.data.fileName || 'Video Asset',
+          status: 'COMPLETED',
+          type: 'PROCESSING_COMPLETE'
+        }));
+
   console.log(`✅ [JOB COMPLETED] Video successfully transcoded:`, processedOutputs);
   return { success: true, outputs: processedOutputs };
     }} catch (error: any) {
@@ -188,12 +239,37 @@ const mediaWorker = new Worker(
           data: { status: 'FAILED' }
         });
       }
+
+      try {
+          const notificationText = `Processing anomaly encountered for ${job.data.fileName || 'your media file'}. Execution stalled.`;
+          await prisma.notification.create({
+            data: {
+              userId: userId || 'user_3FmKTy98aHZT2lTto3jAMux43uB',
+              uploadId: uploadId,
+              message: notificationText,
+              isRead: false,
+              number: 2
+            }
+          });
+
+          await redisPublisher.publish('media-pipeline-notifications', JSON.stringify({
+            userId,
+            dbRecordId: uploadId,
+            fileName: job.data.fileName || 'Media Asset',
+            status: 'FAILED',
+            type: 'PROCESSING_FAILED'
+          }));
+        } catch (pubErr) {
+          console.error('Failed to dispatch crash notification tracking metrics:', pubErr);
+        }
+      
       throw error;
-    }finally{
-      // Always remove the reference from memory once the task is out of the pipeline completely
+    } finally {
       activeJobsMemoryStore.delete(uploadId);
     }
-  },
+  
+      
+    },
   { 
     connection: redisConnection as any, 
     concurrency: 2 // Processes up to 2 items in parallel 
@@ -232,3 +308,6 @@ if (upload?.status === "CANCELLED") {
     console.warn(`[RETRYING TASK] Job ${job.id} failed an attempt (Made: ${job.attemptsMade}). Retrying with exponential backoff...`);
   }
 });
+
+
+
