@@ -13,18 +13,32 @@ import { Server } from 'socket.io';
 dotenv.config();
 
 const app=express()
-//  wrap the express app with an HTTP server to support webSockets cleanly
+app.use(cors({
+  origin: 'http://localhost:3000',
+  credentials: true
+}));
+app.use(express.json());
 const httpServer = createServer(app);
 
-// initialize Socket.IO with explicit CORS configurations matching your Next.js frontend app URL
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-    methods: ["GET", "POST"]
-  }
+    // Dynamic origin matching function resolves the "must not be the wildcard '*'" rule
+    origin: (requestOrigin, callback) => {
+      const allowedOrigins = ["http://localhost:3000", "http://127.0.0.1:3000"];
+      if (!requestOrigin || allowedOrigins.indexOf(requestOrigin) !== -1) {
+        callback(null, true);
+      } else {
+           console.log("blocked by cors")
+        callback(new Error('Blocked by security system CORS configuration matrix'));
+     
+      }
+    },
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  path: '/socket.io/' 
 });
-app.use(cors());
-app.use(express.json());
+
 
 //connection to local docker redis instance
 const redisConnection = new Redis.default({
@@ -172,7 +186,7 @@ app.get('/api/media/user/:userId', async (req, res) => {
       status: record.status,
       progress: record.progress,
       // ⚡ FIX: Pull from processedOutputs to match your DB layout engine
-      outputs: record.processedOutputs || null 
+      outputs: record.processingOpts || null 
     }));
 
     return res.status(200).json({
@@ -440,6 +454,6 @@ redisSubscriber.on('message', (channel, message) => {
 // })
 
 const PORT=5000;
-app.listen(PORT,()=>{
-    console.log(`API server is running on port ${PORT}`)
+httpServer.listen(PORT,()=>{
+    console.log(`API+HTTP server is running on port ${PORT}`)
 })
