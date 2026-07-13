@@ -7,7 +7,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsx watch src/index.ts",
-  "build": "npx prisma generate --schema=../../packages/db/prisma/schema.prisma && tsc && tsup src/index.ts --format esm --clean --external express --external bullmq --external ioredis --external socket.io --external cloudinary --external file-type --external multer --external @project/db",
+ "build": "npx prisma generate --schema=../../packages/db/prisma/schema.prisma && tsup src/index.ts --format esm --clean",
     "start": "node dist/index.js"
   },
   "keywords": [],
