@@ -15,29 +15,27 @@ import { executeVideoPipeline, type JobCancellationTracker } from './utils/video
 
 console.log('High-Performance Background Worker booting up...');
 
-const redisOptions = {
-  host: 'localhost',
-  port: 6379,
-  maxRetriesPerRequest: null
-};
+// const redisOptions = {
+//   host: 'localhost',
+//   port: 6379,
+//   maxRetriesPerRequest: null
+// };
 
 //connection to local docker redis instance
-const redisConnection = new Redis.default({
-   host: 'localhost',
-   port: 6379,
+const redisConnection = new Redis.default(process.env.REDIS_URL!,{
    maxRetriesPerRequest: null 
   });
 
 
   //initializing for notification
-  const redisPublisher = new Redis.default({
-  host: 'localhost',
-  port: 6379,
-  maxRetriesPerRequest: null
-});
+  const redisPublisher =new Redis.default(process.env.REDIS_URL!,{
+   maxRetriesPerRequest: null 
+  });
 
   // EXTRA NETWORK HOOK:an isolated redis connection for the Pub/Sub listener
-const redisSubscriber = new Redis.default(redisOptions);
+const redisSubscriber = new Redis.default(process.env.REDIS_URL!,{
+   maxRetriesPerRequest: null 
+  });
 
 //memory mapping to monitor uploadId
 const activeJobsMemoryStore = new Map<string, { cancelTracker: JobCancellationTracker; jobInstance: Job }>();

@@ -41,9 +41,7 @@ const io = new Server(httpServer, {
 
 
 //connection to local docker redis instance
-const redisConnection = new Redis.default({
-   host: 'localhost',
-   port: 6379,
+const redisConnection = new Redis.default(process.env.REDIS_URL!,{
    maxRetriesPerRequest: null 
   });
 
@@ -134,11 +132,9 @@ app.post('/api/media/upload', validateMediaUpload, async (req, res) => {
 
 
 // Initializing a dedicated publisher
-const redisPublisher = new Redis.default({
-   host: 'localhost',
-   port: 6379,
+const redisPublisher = new Redis.default(process.env.REDIS_URL!,{
    maxRetriesPerRequest: null 
-});
+  });
 
 
  //Polling Status Engine
@@ -185,7 +181,6 @@ app.get('/api/media/user/:userId', async (req, res) => {
       mediaType: record.mediaType,
       status: record.status,
       progress: record.progress,
-      // ⚡ FIX: Pull from processedOutputs to match your DB layout engine
       outputs: record.processingOpts || null 
     }));
 
@@ -194,7 +189,7 @@ app.get('/api/media/user/:userId', async (req, res) => {
       assets: normalizedData
     });
   } catch (error: any) {
-    console.error('💥 Historical fetch anomaly:', error);
+    console.error('Historical fetch anomaly:', error);
     return res.status(500).json({ error: error.message || 'Failed to retrieve media library.' });
   }
 });
@@ -251,11 +246,9 @@ app.post('/api/media/jobs/:id/cancel', async (req, res) => {
 
 
 // Subscriber instances lock down the network connection exclusively for receiving messages
-const redisSubscriber = new Redis.default({
-  host: 'localhost',
-  port: 6379,
-  maxRetriesPerRequest: null
-});
+const redisSubscriber = new Redis.default(process.env.REDIS_URL!,{
+   maxRetriesPerRequest: null 
+  });
 
 // Connection Routing
 io.on('connection', (socket) => {
