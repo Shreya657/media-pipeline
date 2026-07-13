@@ -446,7 +446,7 @@ redisSubscriber.on('message', (channel, message) => {
 //     }
 // })
 
-const PORT=5000;
+const PORT = process.env.PORT || 5000;
 httpServer.listen(PORT,()=>{
     console.log(`API+HTTP server is running on port ${PORT}`)
 })
