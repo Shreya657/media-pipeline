@@ -157,7 +157,7 @@ app.get('/api/media/status/:id', async (req, res) => {
       status: uploadRecord.status,
       progress: uploadRecord.progress,
       processedOutputs: uploadRecord.processingOpts || null,
-      error: uploadRecord.uploadStatus === 'FAILED' ? 'Processing pipeline anomaly encountered.' : undefined
+      error: uploadRecord.status === 'FAILED' ? 'Processing pipeline anomaly encountered.' : undefined
     });
   } catch (error: any) {
     console.error('Status polling resolution mismatch:', error);
