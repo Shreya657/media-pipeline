@@ -5,6 +5,9 @@
     "apps/*",
     "packages/*"
   ],
+  "scripts": {
+    "build": "npm run build --workspace=api-server"
+  },
   "devDependencies": {
     "tsx": "^4.23.1",
     "typescript": "^6.0.3"
