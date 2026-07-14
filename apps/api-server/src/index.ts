@@ -1,15 +1,3 @@
-console.log("🚀 API Server is starting up...");
-
-process.on('uncaughtException', (err) => {
-  console.error('🔥 SYSTEM CRASH:', err.message);
-  console.error(err.stack);
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason) => {
-  console.error('🔥 UNHANDLED REJECTION:', reason);
-  process.exit(1);
-});
 
 import express from 'express'
 import {Queue} from 'bullmq'
