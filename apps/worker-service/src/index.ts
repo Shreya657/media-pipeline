@@ -1,6 +1,6 @@
 
-// import dotenv from 'dotenv';
-// dotenv.config();
+import dotenv from 'dotenv';
+dotenv.config();
 // console.log("DATABASE_URL:", process.env.DATABASE_URL);
 // console.log("Current Working Directory:", process.cwd());
 import { Worker, Job } from 'bullmq';
@@ -14,12 +14,10 @@ import { executeVideoPipeline, type JobCancellationTracker } from './utils/video
 // dotenv.config();
 
 console.log('High-Performance Background Worker booting up...');
+// console.log("REDIS_URL =", process.env.REDIS_URL);
 
-// const redisOptions = {
-//   host: 'localhost',
-//   port: 6379,
-//   maxRetriesPerRequest: null
-// };
+
+
 
 //connection to local docker redis instance
 const redisConnection = new Redis.default(process.env.REDIS_URL!,{
