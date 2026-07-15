@@ -51,13 +51,13 @@ export const uploadMedia = async (payload: UploadPayload) => {
 };
 
 export const getJobStatus = async (id: string) => {
-  const response = await fetch(`${API_BASE_URL}/media/status/${id}`);
+  const response = await fetch(`${API_BASE_URL}/api/media/status/${id}`);
   if (!response.ok) throw new Error('Failed to resolve job status.');
   return response.json();
 };
 
 export const cancelJob = async (id: string) => {
-  const response = await fetch(`${API_BASE_URL}/media/jobs/${id}/cancel`, {
+  const response = await fetch(`${API_BASE_URL}/api/media/jobs/${id}/cancel`, {
     method: 'POST',
   });
   if (!response.ok) throw new Error('Cancellation reject execution.');
@@ -65,7 +65,7 @@ export const cancelJob = async (id: string) => {
 };
 
 export const getUserMediaLibrary = async (id: string) => {
-  const response = await fetch(`${API_BASE_URL}/media/user/${id}`);
+  const response = await fetch(`${API_BASE_URL}/api/media/user/${id}`);
   if (!response.ok)
   throw new Error('Failed to resolve job status.');
   return response.json();
