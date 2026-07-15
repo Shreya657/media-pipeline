@@ -13,25 +13,42 @@ import { Server } from 'socket.io';
 
 dotenv.config();
 
+
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  process.env.FRONTEND_URL 
+].filter(Boolean) as string[];
+
+
 const app=express()
+
+
+// express cors Handler 
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Blocked by security system CORS configuration matrix'));
+    }
+  },
   credentials: true
 }));
+
 app.use(express.json());
 const httpServer = createServer(app);
 
+
+//socket io w cors setup
 const io = new Server(httpServer, {
   cors: {
-    // Dynamic origin matching function resolves the "must not be the wildcard '*'" rule
     origin: (requestOrigin, callback) => {
-      const allowedOrigins = ["http://localhost:3000", "http://127.0.0.1:3000"];
-      if (!requestOrigin || allowedOrigins.indexOf(requestOrigin) !== -1) {
+      if (!requestOrigin || allowedOrigins.includes(requestOrigin)) {
         callback(null, true);
       } else {
-           console.log("blocked by cors")
+        console.log(`Connection blocked by CORS engine: ${requestOrigin}`);
         callback(new Error('Blocked by security system CORS configuration matrix'));
-     
       }
     },
     methods: ["GET", "POST"],
