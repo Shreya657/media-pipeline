@@ -158,10 +158,43 @@ export const MediaUploadWorkbench: React.FC<WorkbenchProps> = ({ userId }) => {
     }
   };
 
+
+  useEffect(() => {
+  const handleFocusAssetEvent = (e: Event) => {
+    const customEvent = e as CustomEvent<{ dbRecordId: string; status: string }>;
+    if (!customEvent.detail) return;
+
+    const { status, dbRecordId } = customEvent.detail;
+
+    if (status === 'COMPLETED') {
+      setActiveTab('COMPLETED');
+    } else if (status === 'FAILED' || status === 'CANCELLED') {
+      setActiveTab('ARCHIVED');
+    } else {
+      setActiveTab('ACTIVE');
+    }
+
+    setTimeout(() => {
+      const targetCard = document.getElementById(`asset-${dbRecordId}`);
+      if (targetCard) {
+        targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        targetCard.classList.add('ring-4', 'ring-indigo-500', 'dark:ring-indigo-400', 'scale-[1.01]');
+        setTimeout(() => {
+          targetCard.classList.remove('ring-4', 'ring-indigo-500', 'dark:ring-indigo-400', 'scale-[1.01]');
+        }, 3000);
+      }
+    }, 100);
+  };
+
+  window.addEventListener('focus-pipeline-asset', handleFocusAssetEvent);
+  return () => window.removeEventListener('focus-pipeline-asset', handleFocusAssetEvent);
+}, []);
+
   
 
   return (
-    <div className="w-full max-w-2xl mx-auto space-y-8">
+  <div className="w-full max-w-2xl mx-auto space-y-8">
       <div 
         onClick={() => fileInputRef.current?.click()}
         className={`border border-dashed rounded-3xl p-10 text-center cursor-pointer transition bg-white dark:bg-zinc-900/30 ${
@@ -261,7 +294,11 @@ export const MediaUploadWorkbench: React.FC<WorkbenchProps> = ({ userId }) => {
             </div>
           ) : (
             activeJobs.filter(j => j.status === 'PENDING' || j.status === 'PROCESSING').map(job => (
-              <div key={job.id} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4 shadow-sm">
+              <div 
+                key={job.id} 
+                id={`asset-${job.id}`} 
+                className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4 shadow-sm transition-all duration-500 scroll-mt-6"
+              >
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-xs font-bold text-zinc-800 dark:text-zinc-200 truncate">{job.fileName}</p>
@@ -303,7 +340,11 @@ export const MediaUploadWorkbench: React.FC<WorkbenchProps> = ({ userId }) => {
                   </h4>
                   <div className="grid grid-cols-1 gap-3">
                     {activeJobs.filter(j => j.status === 'COMPLETED' && j.mediaType === 'IMAGE').map(job => (
-                      <div key={job.id} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-sm space-y-4">
+                      <div 
+                        key={job.id} 
+                        id={`asset-${job.id}`} 
+                        className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-sm space-y-4 transition-all duration-500 scroll-mt-6"
+                      >
                         <div className="flex justify-between items-start gap-4">
                           <div className="truncate">
                             <p className="text-xs font-bold text-zinc-800 dark:text-zinc-200 truncate">{job.fileName}</p>
@@ -327,6 +368,7 @@ export const MediaUploadWorkbench: React.FC<WorkbenchProps> = ({ userId }) => {
                 </div>
               )}
 
+              {/* VIDEO SUB-SECTION */}
               {activeJobs.filter(j => j.status === 'COMPLETED' && j.mediaType === 'VIDEO').length > 0 && (
                 <div className="space-y-3">
                   <h4 className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider flex items-center gap-2">
@@ -334,7 +376,11 @@ export const MediaUploadWorkbench: React.FC<WorkbenchProps> = ({ userId }) => {
                   </h4>
                   <div className="grid grid-cols-1 gap-3">
                     {activeJobs.filter(j => j.status === 'COMPLETED' && j.mediaType === 'VIDEO').map(job => (
-                      <div key={job.id} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-sm space-y-4">
+                      <div 
+                        key={job.id} 
+                        id={`asset-${job.id}`} 
+                        className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-sm space-y-4 transition-all duration-500 scroll-mt-6"
+                      >
                         <div className="flex justify-between items-start gap-4">
                           <div className="truncate">
                             <p className="text-xs font-bold text-zinc-800 dark:text-zinc-200 truncate">{job.fileName}</p>
@@ -369,7 +415,11 @@ export const MediaUploadWorkbench: React.FC<WorkbenchProps> = ({ userId }) => {
           ) : (
             <div className="grid grid-cols-1 gap-2.5">
               {activeJobs.filter(j => j.status === 'CANCELLED' || j.status === 'FAILED').map(job => (
-                <div key={job.id} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 flex items-center justify-between gap-4 shadow-sm opacity-65">
+                <div 
+                  key={job.id} 
+                  id={`asset-${job.id}`} 
+                  className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 flex items-center justify-between gap-4 shadow-sm opacity-65 transition-all duration-500 scroll-mt-6"
+                >
                   <div className="truncate">
                     <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300 truncate">{job.fileName}</p>
                     <p className="text-[10px] font-mono text-zinc-500">Pipeline Terminated Execution</p>

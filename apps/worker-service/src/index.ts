@@ -38,7 +38,7 @@ const redisSubscriber = new Redis.default(process.env.REDIS_URL!,{
 //memory mapping to monitor uploadId
 const activeJobsMemoryStore = new Map<string, { cancelTracker: JobCancellationTracker; jobInstance: Job }>();
 
-// connect to the messaging channel immediately on boot
+// connect to the messaging channel immediately on boot--job cancellation
 redisSubscriber.subscribe('media-pipeline-cancellation', (err) => {
   if (err) {
     console.error('🥀Failed to bind cancellation subscription stream channel:', err);
@@ -148,7 +148,7 @@ const mediaWorker = new Worker(
         });
 
         
-
+        //once job gets done,notificayion is published and saved to db
         //notification
         const notificationText = `Image variation optimization processing complete for ${job.data.fileName || 'your image asset'}.`;
         await prisma.notification.create({

@@ -259,6 +259,124 @@ app.post('/api/media/jobs/:id/cancel', async (req, res) => {
 });
 
 
+// mark 1 notification as read
+app.patch('/api/notifications/:id/read', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const updatedNotification = await prisma.notification.update({
+      where: { id },
+      data: { isRead: true }
+    });
+
+    return res.status(200).json
+    ({
+       success: true, updatedNotification
+
+     });
+  } catch (error: any) {
+    console.error('Failed to mark notification as read:', error);
+    return res.status(500).json({ error: 'Internal database update failure.' });
+  }
+});
+
+// FETCH ALL NOTIFICATIONS
+app.get('/api/notifications/user/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const userNotifications = await prisma.notification.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 30, 
+      include: {
+        upload: {
+          select: {
+            status: true,
+            mediaType: true
+          }
+        }
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      notifications: userNotifications.map((n: any) => ({
+        notificationId: n.id,
+        dbRecordId: n.uploadId,
+        message: n.message,
+        isRead: n.isRead,
+        timestamp: n.createdAt.toISOString(),
+        status: n.upload?.status || 'COMPLETED',
+        mediaType: n.upload?.mediaType || 'IMAGE'
+      }))
+    });
+  } catch (error: any) {
+    console.error('Failed fetching notification logs:', error);
+    return res.status(500).json({ error: 'Internal server notification retrieval failure.' });
+  }
+});
+
+// MARK A SINGLE NOTIFICATION AS READ
+app.patch('/api/notifications/:id/read', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const updated = await prisma.notification.update({
+      where: { id },
+      data: { isRead: true }
+    });
+
+    return res.status(200).json({ success: true, updatedNotification: updated });
+  } catch (error: any) {
+    console.error('Failed to mark individual notification as read:', error);
+    return res.status(500).json({ error: 'Internal database single update failure.' });
+  }
+});
+
+// MARK ALL NOTIFICATIONS AS READ
+app.patch('/api/notifications/user/:userId/read-all', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const updateBatch = await prisma.notification.updateMany({
+      where: { 
+        userId,
+        isRead: false 
+      },
+      data: { isRead: true }
+    });
+
+    return res.status(200).json({ 
+      success: true, 
+      message: `Successfully cleared ${updateBatch.count} unread notifications.` 
+    });
+  } catch (error: any) {
+    console.error('Failed processing batch read updates:', error);
+    return res.status(500).json({ error: 'Internal database batch transaction error.' });
+  }
+});
+
+// DELETE A NOTIFICATION 
+app.delete('/api/notifications/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await prisma.notification.delete({
+      where: { id }
+    });
+
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Notification removed successfully from workspace logs.' 
+    });
+  } catch (error: any) {
+    console.error('Failed to drop notification entry:', error);
+    return res.status(500).json({ error: 'Internal database record deletion failure.' });
+  }
+});
+
+
 
 
 
@@ -317,7 +435,7 @@ redisSubscriber.on('message', (channel, message) => {
 
       console.log(`broadcasted pipeline notification down channel [${targetRoom}] for asset: ${fileName}`);
     } catch (parseError) {
-      console.error('🚨 Error parsing Redis pipeline payload:', parseError);
+      console.error('Error parsing Redis pipeline payload:', parseError);
     }
   }
 });

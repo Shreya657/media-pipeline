@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { LogOut, UploadCloud } from "lucide-react";
 import { MediaUploadWorkbench } from "../component/mediaUpload";
+import { NotificationCenter } from "../component/notification";
 
 export default async function DashboardPage() {
   const { userId } = await auth();
@@ -51,6 +52,8 @@ export default async function DashboardPage() {
               <LogOut className="h-4 w-4" /> Exit
             </Button>
           </Link>
+           
+           <NotificationCenter userId={userId} />
         </div>
       </header>
 
